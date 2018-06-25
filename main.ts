@@ -5,12 +5,16 @@ let tick,
   n = 0,
   t0 = process.hrtime();
 
-const TARGET_TICK_RATE = 2000; // milliseconds
+const TARGET_TICK_RATE = 1500; // milliseconds
 
-const app = new App();
+let app: App;
 
 tick = async function() {
   const d = process.hrtime(t0);
+  if (!app) {
+    app = new App();
+    await app.init(); // there no recovery from this
+  }
   try {
     // console.debug("tick.", n++, d);
     await app.tick();
