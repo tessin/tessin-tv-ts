@@ -1,0 +1,7 @@
+{
+  "devDependencies": {
+    "@types/node": "^10.3.5",
+    "tsc": "^1.20150623.0",
+    "typescript": "^2.9.2"
+  }
+}
