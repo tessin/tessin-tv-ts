@@ -1,31 +1,24 @@
-import App from "./App";
-
-let tick,
-  tickID,
-  n = 0,
-  t0 = process.hrtime();
+import App, { TickEvent, TopState } from "./App";
+import { StateMachine } from "./HSM";
 
 const TARGET_TICK_RATE = 1500; // milliseconds
 
-let app: App;
-
-tick = async function() {
-  const d = process.hrtime(t0);
-  if (!app) {
-    app = new App();
-    await app.init(); // there no recovery from this
-  }
-  try {
-    // console.debug("tick.", n++, d);
-    await app.tick();
-  } catch (err) {
-    console.error("error:", err);
-  } finally {
-    const ms =
+async function main() {
+  const hsm = new StateMachine<App>(new App());
+  await hsm.transition(TopState);
+  for (const t0 = process.hrtime(); ; ) {
+    const d = process.hrtime(t0);
+    try {
+      await hsm.dispatch(new TickEvent());
+    } catch (err) {
+      console.error("error:", err);
+    }
+    const timeout =
       TARGET_TICK_RATE - (Math.floor(0.000001 * d[1]) % TARGET_TICK_RATE);
-    // console.debug("timeout", ms);
-    tickID = setTimeout(tick, ms);
+    await new Promise(
+      resolve => (hsm.context.tickTimer = setTimeout(resolve, timeout))
+    );
   }
-};
+}
 
-tickID = setTimeout(tick, 0);
+main();

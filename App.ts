@@ -1,57 +1,37 @@
 import { Browser, Page, launch } from "puppeteer";
 
-import { StateMachine, State, Event } from "./HSM";
+import { StateMachine, Event, EnterEvent, LeaveEvent } from "./HSM";
+import { clearTimeout } from "timers";
 
-class TickEvent implements Event {
+export class TickEvent implements Event {
   type: string = "tick";
 }
 
-class InitialState extends State {
-  _browser: Browser;
-  _page: Page;
-
-  async enter() {
-    this._browser = await launch({ headless: false });
-  }
-
-  async handle(e: Event) {
-    switch (e.type) {
-      case "tick": {
-        return new PageState(await this._browser.newPage());
-      }
-    }
-    return await super.handle(e);
-  }
-
-  // leave() {
-  //   // return this._browser.close();
-  // }
-}
-
-class PageState extends State {
-  _page: Page;
-  constructor(page: Page) {
-    super();
-    this._page = page;
-  }
-
-  handle(e: Event) {
-    return super.handle(e);
-  }
+export class DisconnectedEvent implements Event {
+  type: string = "disconnected";
 }
 
 export default class App {
-  _hsm: StateMachine;
+  browser: Browser;
+  stop: boolean;
+  tickTimer: NodeJS.Timer;
+}
 
-  constructor() {
-    this._hsm = new StateMachine();
+export async function TopState(hsm: StateMachine<App>, e: Event, context: App) {
+  if (e instanceof EnterEvent) {
+    if (!context.browser) {
+      context.browser = await launch({ headless: false });
+      context.browser.on("disconnected", () =>
+        hsm.dispatch(new DisconnectedEvent())
+      );
+    }
+    return null; // handled
   }
-
-  init() {
-    return this._hsm.transition(new InitialState());
+  if (e instanceof DisconnectedEvent) {
+    console.debug("disconnected!");
+    clearTimeout(context.tickTimer);
+    return null; // handled
   }
-
-  tick() {
-    return this._hsm.dispatch(new TickEvent());
-  }
+  console.debug("unhandled event", e.constructor.name);
+  return null; // unhandled (top state)
 }
