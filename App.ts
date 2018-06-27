@@ -10,6 +10,8 @@ import {
   transition
 } from "./HSM";
 
+import { hello } from "./commands";
+
 export class TickEvent implements Event {
   type: string = "tick";
   n: number;
@@ -36,6 +38,7 @@ export default class App extends StateMachine<App> {
 }
 
 export async function TopState(hsm: App, e: Event): Promise<State<App>> {
+  console.debug("event", e.constructor.name);
   if (e instanceof EnterEvent) {
     if (!hsm.browser) {
       hsm.browser = await launch({ headless: false });
@@ -52,9 +55,9 @@ export async function TopState(hsm: App, e: Event): Promise<State<App>> {
     return null; // handled
   }
   if (e instanceof TickEvent) {
-    // every other tick
+    console.debug("tick", e.n);
     if (e.n % 2 == 0) {
-      // do hello
+      await hello();
     }
   }
   console.debug("unhandled event", e.constructor.name);

@@ -7,8 +7,8 @@ type HttpContent = object | string;
 interface HttpRequestMessage {
   method: string;
   url: string;
-  headers: HttpHeaders;
-  content: HttpContent;
+  headers?: HttpHeaders;
+  content?: HttpContent;
   // todo: rest params
 }
 
@@ -35,7 +35,8 @@ class Content {
       this.headers = headers;
       this.content = new Buffer(content, "utf8");
     } else {
-      throw new TypeError("content must be object or string");
+      this.headers = headers;
+      this.content = null;
     }
   }
 }

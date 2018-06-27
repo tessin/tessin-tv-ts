@@ -9,6 +9,7 @@ async function main() {
   const t0 = process.hrtime();
   for (let n = 0; ; n++) {
     const d = process.hrtime(t0);
+    console.debug("tick", d);
     try {
       await dispatch(hsm, new TickEvent(n));
     } catch (err) {
@@ -21,5 +22,7 @@ async function main() {
     );
   }
 }
+
+process.env.npm_package_version = require("../package.json").version;
 
 main();
