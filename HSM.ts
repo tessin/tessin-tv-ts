@@ -1,3 +1,5 @@
+// this is largely based on the QP-nano framework
+
 export interface Event {
   type: string;
 }
@@ -12,38 +14,39 @@ export class LeaveEvent {
 
 // ================
 
-export type State<T> = (
-  m: StateMachine<T>,
-  e: Event,
-  context: T
+export type State<T extends StateMachine<T>> = (
+  hsm: T,
+  e: Event
 ) => Promise<State<T>>;
 
 // ================
 
-export class StateMachine<T> {
-  context: T;
+export class StateMachine<T extends StateMachine<T>> {
+  // todo: inbox?
   currentState: State<T>;
+}
 
-  constructor(context: T) {
-    this.context = context;
+// ================
+
+export async function dispatch<T extends StateMachine<T>>(hsm: T, e: Event) {
+  // todo: RTC?
+  let state = hsm.currentState;
+  for (; state; ) {
+    state = await state(hsm, e);
   }
+}
 
-  async dispatch(e: Event) {
-    let s = this.currentState;
-    for (; s; ) {
-      s = await s(this, e, this.context);
+export async function transition<T extends StateMachine<T>>(
+  hsm: T,
+  nextState: State<T>
+) {
+  if (this.currentState !== nextState) {
+    if (this.currentState) {
+      await dispatch(hsm, new LeaveEvent());
     }
-  }
-
-  async transition(nextState: State<T>) {
-    if (this.currentState !== nextState) {
-      if (this.currentState) {
-        await this.dispatch(new LeaveEvent());
-      }
-      this.currentState = nextState;
-      if (this.currentState) {
-        await this.dispatch(new EnterEvent());
-      }
+    this.currentState = nextState;
+    if (this.currentState) {
+      await dispatch(hsm, new EnterEvent());
     }
   }
 }

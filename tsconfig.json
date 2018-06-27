@@ -2,9 +2,9 @@
   "compileOnSave": true,
   "compilerOptions": {
     "types": ["node"],
-    "target": "es2017",
+    "target": "esnext",
     "module": "commonjs",
     "outDir": "lib"
   },
-  "include": ["*.ts"]
+  "include": ["**/*.ts"]
 }
