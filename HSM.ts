@@ -22,7 +22,7 @@ export type State<T extends StateMachine<T>> = (
 // ================
 
 export class StateMachine<T extends StateMachine<T>> {
-  // todo: inbox?
+  inbox: Event[] = [];
   currentState: State<T>;
 }
 
@@ -55,5 +55,23 @@ export async function dispatch<T extends StateMachine<T>>(hsm: T, e: Event) {
   for (; state; ) {
     console.debug("dispatch", e.constructor.name, "=>", state.name);
     state = await state(hsm, e);
+  }
+}
+
+export function post<T extends StateMachine<T>>(hsm: T, e: Event) {
+  hsm.inbox.push(e);
+}
+
+export async function runToCompletion<T extends StateMachine<T>>(
+  hsm: T,
+  e: Event
+) {
+  let i;
+  try {
+    for (i = 0; 0 < hsm.inbox.length; i++) {
+      await dispatch(hsm, e);
+    }
+  } finally {
+    hsm.inbox = hsm.inbox.slice(i); // dispatched events that fail are not retried later
   }
 }

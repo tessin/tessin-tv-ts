@@ -50,7 +50,30 @@ export async function serialNumber(): Promise<string> {
   return "ffffffffffffffff";
 }
 
-export async function hello(): Promise<void> {
+interface Result<T> {
+  success: boolean;
+  errorCode?: string;
+  errorMessage?: string;
+  payload: T;
+}
+
+export interface HelloResponse {
+  id: string;
+  name: string;
+  gotoUrl?: string;
+  getCommandUrl: string;
+  eventsUrl: string;
+  jobs?: HelloJobResponse[];
+}
+
+export interface HelloJobResponse {
+  name: string;
+  cronExpression: string;
+  command: any;
+  timeZone: string;
+}
+
+export async function hello(): Promise<HelloResponse> {
   var res = await request({
     method: "POST",
     url: authorize("/api/hello"),
@@ -65,13 +88,11 @@ export async function hello(): Promise<void> {
     }
   });
 
-  const result = res.content as {
-    success: boolean;
-    errorCode: string;
-    errorMessage: string;
-  };
+  const result = res.content as Result<HelloResponse>;
 
   if (!result.success) {
     throw new Error(`${result.errorCode}: ${result.errorMessage}`);
   }
+
+  return result.payload;
 }
