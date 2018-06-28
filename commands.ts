@@ -68,6 +68,7 @@ export interface HelloResponse {
 
 export interface HelloJobResponse {
   name: string;
+  etag: string;
   cronExpression: string;
   command: any;
   timeZone: string;

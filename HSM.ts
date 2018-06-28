@@ -22,8 +22,12 @@ export type State<T extends StateMachine<T>> = (
 // ================
 
 export class StateMachine<T extends StateMachine<T>> {
-  inbox: Event[] = [];
-  currentState: State<T>;
+  _inbox: Event[] = [];
+  _currentState: State<T>;
+
+  constructor(initialState: State<T>) {
+    this._currentState = initialState;
+  }
 }
 
 // ================
@@ -32,26 +36,25 @@ export async function transition<T extends StateMachine<T>>(
   hsm: T,
   nextState: State<T>
 ) {
-  if (hsm.currentState !== nextState) {
+  if (hsm._currentState !== nextState) {
     console.debug(
       "transition",
-      hsm.currentState && hsm.currentState.name,
+      hsm._currentState && hsm._currentState.name,
       "=>",
       nextState && nextState.name
     );
-    if (hsm.currentState) {
+    if (hsm._currentState) {
       await dispatch(hsm, new LeaveEvent());
     }
-    hsm.currentState = nextState;
-    if (hsm.currentState) {
+    hsm._currentState = nextState;
+    if (hsm._currentState) {
       await dispatch(hsm, new EnterEvent());
     }
   }
 }
 
 export async function dispatch<T extends StateMachine<T>>(hsm: T, e: Event) {
-  // todo: RTC?
-  let state = hsm.currentState;
+  let state = hsm._currentState;
   for (; state; ) {
     console.debug("dispatch", e.constructor.name, "=>", state.name);
     state = await state(hsm, e);
@@ -59,19 +62,11 @@ export async function dispatch<T extends StateMachine<T>>(hsm: T, e: Event) {
 }
 
 export function post<T extends StateMachine<T>>(hsm: T, e: Event) {
-  hsm.inbox.push(e);
+  hsm._inbox.push(e);
 }
 
-export async function runToCompletion<T extends StateMachine<T>>(
-  hsm: T,
-  e: Event
-) {
-  let i;
-  try {
-    for (i = 0; 0 < hsm.inbox.length; i++) {
-      await dispatch(hsm, e);
-    }
-  } finally {
-    hsm.inbox = hsm.inbox.slice(i); // dispatched events that fail are not retried later
+export async function runToCompletion<T extends StateMachine<T>>(hsm: T) {
+  for (; 0 < hsm._inbox.length; ) {
+    await dispatch(hsm, hsm._inbox.shift());
   }
 }

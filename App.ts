@@ -12,7 +12,7 @@ import {
   post
 } from "./HSM";
 
-import { hello, HelloResponse } from "./commands";
+import { hello, HelloResponse, HelloJobResponse } from "./commands";
 
 export class TickEvent implements Event {
   type: string = "tick";
@@ -49,14 +49,14 @@ export default class App extends StateMachine<App> {
   tickTimer: NodeJS.Timer;
   // name of device
   name: string;
+  gotoUrl: string;
   jobs: Map<string, Job>;
+  page: Page;
 
   constructor() {
-    super();
+    super(TopState);
 
     this.jobs = new Map<string, Job>();
-
-    transition(this, TopState);
   }
 }
 
@@ -74,40 +74,82 @@ export async function TopState(hsm: App, e: Event): Promise<State<App>> {
   }
   if (e instanceof DisconnectedEvent) {
     console.debug("disconnected!");
+
+    // stop all jobs
+    for (const [k, v] of hsm.jobs) {
+      v.job.stop();
+    }
+
     clearTimeout(hsm.tickTimer);
     return null; // handled
   }
   if (e instanceof TickEvent) {
-    console.debug("tick", e.n);
-    if (e.n % 2 == 0) {
+    if (e.n == 0) {
+      // this is only done once!
+
       const result = await hello();
 
-      this.name = result.name;
+      console.log("jobs", result.jobs);
 
-      // stop all jobs for simplicity sake
-      // todo: use etags to invalidate jobs
+      hsm.name = result.name;
+      hsm.gotoUrl = result.gotoUrl;
 
-      for (const [k, v] of hsm.jobs) {
-        v.job.stop();
+      const oldJobs = hsm.jobs;
+      const newJobs = new Map<string, HelloJobResponse>();
+
+      for (const job of result.jobs || []) {
+        newJobs.set(job.name, job);
       }
 
-      hsm.jobs.clear();
+      const stopped = new Set<string>();
 
-      if (result.jobs) {
-        for (const job of result.jobs) {
-          const jobName = job.name;
-          const jobCommand = job.command;
+      for (const [k, v] of oldJobs) {
+        if (newJobs.has(k)) {
+          const newJob = newJobs.get(k);
+          // has this job changed?
+          if (newJob.etag !== v.etag) {
+            v.job.stop();
+            stopped.add(k);
+          }
+        } else {
+          v.job.stop();
+          stopped.add(k);
+        }
+      }
+
+      for (const k of stopped) {
+        oldJobs.delete(k);
+      }
+
+      for (const [k, v] of newJobs) {
+        if (!oldJobs.has(k)) {
+          const jobName = v.name;
+          const jobCommand = v.command;
           const cronJob = new CronJob({
-            cronTime: job.cronExpression,
+            cronTime: v.cronExpression,
             onTick: () => post(hsm, new JobEvent(jobName, jobCommand)),
-            timeZone: job.timeZone
+            timeZone: v.timeZone
           });
-          hsm.jobs.set(job.name, cronJob);
+          oldJobs.set(v.name, { etag: v.etag, job: cronJob });
           cronJob.start();
         }
       }
+
+      hsm.page = await hsm.browser.newPage();
+
+      if (hsm.gotoUrl) {
+        await hsm.page.goto(hsm.gotoUrl);
+      }
+
+      await transition(hsm, Hello);
+
+      return null; // handled
     }
   }
   console.debug("unhandled event", e.constructor.name);
   return null; // unhandled (top state)
+}
+
+export async function Hello(hsm: App, e: Event): Promise<State<App>> {
+  return TopState;
 }
