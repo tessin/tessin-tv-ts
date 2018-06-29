@@ -37,6 +37,10 @@ function authorize(url) {
   return authorized;
 }
 
+export function hostname() {
+  return exec(platform() === "win32" ? "hostname" : "hostname -I");
+}
+
 const serialNumberPattern = /[Ss]erial\s*:\s*([0-9A-Fa-f]+)/;
 
 export async function serialNumber(): Promise<string> {
@@ -74,17 +78,18 @@ export interface HelloJobResponse {
   timeZone: string;
 }
 
-export async function hello(): Promise<HelloResponse> {
+export async function hello(
+  hostname: string,
+  serialNumber: string
+): Promise<HelloResponse> {
   var res = await request({
     method: "POST",
     url: authorize("/api/hello"),
     content: {
       version: process.env.npm_package_version,
       hostID: {
-        hostname: await exec(
-          platform() === "win32" ? "hostname" : "hostname -I"
-        ),
-        serialNumber: await serialNumber()
+        hostname: hostname,
+        serialNumber: serialNumber
       }
     }
   });
@@ -92,7 +97,7 @@ export async function hello(): Promise<HelloResponse> {
   const result = res.content as Result<HelloResponse>;
 
   if (!result.success) {
-    throw new Error(`${result.errorCode}: ${result.errorMessage}`);
+    throw new Error(`hello ${result.errorCode}: ${result.errorMessage}`);
   }
 
   return result.payload;

@@ -1,3 +1,6 @@
+import { stat } from "fs";
+import { parse } from "url";
+
 import { Browser, Page, launch } from "puppeteer";
 import { CronJob } from "cron";
 
@@ -12,7 +15,14 @@ import {
   post
 } from "./HSM";
 
-import { hello, HelloResponse, HelloJobResponse } from "./commands";
+import {
+  hello,
+  HelloResponse,
+  HelloJobResponse,
+  hostname,
+  serialNumber
+} from "./commands";
+import { resolve, basename } from "path";
 
 export class TickEvent implements Event {
   type: string = "tick";
@@ -43,15 +53,45 @@ class JobEvent implements Event {
   }
 }
 
+interface PuppeteerCommand {
+  type: "puppeteer";
+  inst: any[][];
+}
+
+type Command = PuppeteerCommand;
+
+class CommandEvent implements Event {
+  type: string = "command";
+  command: Command;
+
+  constructor(command: Command) {
+    this.command = command;
+  }
+}
+
+class PageEvent implements Event {
+  type: string = "page";
+  eventName: string;
+  err?: Error;
+
+  constructor(eventName: string) {
+    this.eventName = eventName;
+  }
+}
+
 export default class App extends StateMachine<App> {
   browser: Browser;
+  browserPage: Page;
+
   stop: boolean;
   tickTimer: NodeJS.Timer;
+  helloTick: number;
   // name of device
   name: string;
   gotoUrl: string;
   jobs: Map<string, Job>;
-  page: Page;
+  hostname: string;
+  serialNumber: string;
 
   constructor() {
     super(TopState);
@@ -60,16 +100,75 @@ export default class App extends StateMachine<App> {
   }
 }
 
+function setStatusText(textContent) {
+  const el = document.getElementById("status-text");
+  if (el) {
+    el.textContent = textContent;
+  }
+}
+
 export async function TopState(hsm: App, e: Event): Promise<State<App>> {
   console.debug("event", e.constructor.name);
   if (e instanceof EnterEvent) {
+    if (!hsm.hostname) {
+      hsm.hostname = await hostname();
+    }
+
+    if (!hsm.serialNumber) {
+      hsm.serialNumber = await serialNumber();
+    }
+
     if (!hsm.browser) {
-      hsm.browser = await launch({ headless: false });
+      let executablePath;
+
+      // will resolve as stat error or null
+      const statErrTask = new Promise(resolve =>
+        stat("/usr/bin/chromium-browser", resolve)
+      );
+
+      if ((await statErrTask) == null) {
+        executablePath = "/usr/bin/chromium-browser";
+      }
+
+      hsm.browser = await launch({
+        executablePath,
+        headless: false,
+        slowMo: 250,
+        args: [
+          "--no-default-browser-check",
+          "--no-first-run",
+          "--disable-infobars", // hide "Chrome is being controlled by  ..."
+          // "--incognito", // incognito mode is not support by puppeteer
+          process.env.NODE_ENV !== "development" ? "--kiosk" : null
+        ].filter(x => x)
+      });
       hsm.browser.on(
         "disconnected",
         () => dispatch(hsm, new DisconnectedEvent()) // todo: schedule don't dispatch (as dispatch is promise...)?
       );
     }
+
+    if (!hsm.browserPage) {
+      hsm.browserPage = await hsm.browser.newPage();
+
+      hsm.browserPage.on("error", err => {
+        const e = new PageEvent("error");
+        e.err = err;
+        post(hsm, e);
+      });
+
+      // native Raspberry Pi resolution
+      await hsm.browserPage.setViewport({ width: 1920, height: 1080 });
+
+      post(
+        hsm,
+        new CommandEvent({
+          type: "puppeteer",
+          inst: [["goto", "tessin-tv:///splash.html"]]
+        })
+      );
+    }
+
     return null; // handled
   }
   if (e instanceof DisconnectedEvent) {
@@ -84,12 +183,10 @@ export async function TopState(hsm: App, e: Event): Promise<State<App>> {
     return null; // handled
   }
   if (e instanceof TickEvent) {
-    if (e.n == 0) {
+    if (!hsm.helloTick) {
       // this is only done once!
 
-      const result = await hello();
-
-      console.log("jobs", result.jobs);
+      const result = await hello(hsm.hostname, hsm.serialNumber);
 
       hsm.name = result.name;
       hsm.gotoUrl = result.gotoUrl;
@@ -100,6 +197,11 @@ export async function TopState(hsm: App, e: Event): Promise<State<App>> {
       for (const job of result.jobs || []) {
         newJobs.set(job.name, job);
       }
+
+      console.debug(
+        "hello",
+        `${newJobs.size} ${newJobs.size === 1 ? "job" : "jobs"}`
+      );
 
       const stopped = new Set<string>();
 
@@ -135,15 +237,51 @@ export async function TopState(hsm: App, e: Event): Promise<State<App>> {
         }
       }
 
-      hsm.page = await hsm.browser.newPage();
-
-      if (hsm.gotoUrl) {
-        await hsm.page.goto(hsm.gotoUrl);
-      }
-
       await transition(hsm, Hello);
 
+      hsm.helloTick = e.n;
+
       return null; // handled
+    }
+  }
+  if (e instanceof CommandEvent) {
+    switch (e.command.type) {
+      case "puppeteer": {
+        const page = hsm.browserPage;
+        for (const [f, ...args] of e.command.inst) {
+          if (f === "goto") {
+            // resolve tessin-tv:// scheme
+            const parsed = parse(args[0]);
+            if (parsed.protocol === "tessin-tv:") {
+              let resolved =
+                resolve(__dirname, "../static", basename(parsed.pathname)) +
+                (parsed.search || "");
+              if (require("os").platform() === "linux") {
+                resolved = "file://" + resolved;
+              }
+              console.debug("goto", args[0], "=>", resolved);
+              args[0] = resolved;
+            }
+          }
+          await page[f].apply(page, args);
+          if (f === "goto") {
+            try {
+              await page.evaluate(
+                setStatusText,
+                JSON.stringify({
+                  name: hsm.name,
+                  hostname: hsm.hostname,
+                  serialNumber: hsm.serialNumber,
+                  version: process.env.npm_package_version
+                })
+              );
+            } catch (err) {
+              console.error("cannot set status text", err.message);
+            }
+          }
+        }
+        return null; // handled
+      }
     }
   }
   console.debug("unhandled event", e.constructor.name);
